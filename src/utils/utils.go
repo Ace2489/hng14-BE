@@ -3,18 +3,15 @@ package utils
 import (
 	"context"
 	"encoding/json"
+	"log"
 	"log/slog"
 	"net/http"
 )
 
-type SuccessResponse struct {
-	Status string      `json:"status"`
-	Data   interface{} `json:"data"`
-}
-
-type ErrorResponse struct {
-	Status  string `json:"status"`
-	Message string `json:"message"`
+type Payload struct {
+	Status  string      `json:"status"`
+	Message string      `json:"message,omitempty"`
+	Data    interface{} `json:"data,omitempty"`
 }
 
 type LoggerKey struct{}
@@ -27,16 +24,20 @@ func WriteJSON(w http.ResponseWriter, status int, payload interface{}) {
 }
 
 func WriteError(w http.ResponseWriter, status int, message string) {
-	WriteJSON(w, status, ErrorResponse{Status: "error", Message: message})
+	WriteJSON(w, status, Payload{Status: "error", Message: message})
 }
 
 func WriteSuccess(w http.ResponseWriter, status int, data interface{}) {
-	WriteJSON(w, status, SuccessResponse{Status: "success", Data: data})
+	WriteSuccessWithMessage(w, status, "", Payload{Status: "success", Data: data})
+}
+func WriteSuccessWithMessage(w http.ResponseWriter, status int, message string, data interface{}) {
+	WriteJSON(w, status, Payload{Status: "success", Message: message, Data: data})
 }
 
 func LoggerFromCtx(ctx context.Context) *slog.Logger {
 	if logger, ok := ctx.Value(LoggerKey{}).(*slog.Logger); ok {
 		return logger
 	}
+	log.Println("No logger found. Falling back the default logger")
 	return slog.Default()
 }

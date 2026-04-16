@@ -19,7 +19,7 @@ func logLevel() slog.Level {
 	case "ERROR":
 		return slog.LevelError
 	default:
-		return slog.LevelInfo
+		return slog.LevelDebug
 	}
 }
 
@@ -46,8 +46,12 @@ func main() {
 	var g = deps.GenderizeHandler()
 	mux.HandleFunc("GET /api/classify", g.HandleGender)
 
-	app := requestLoggerMiddleware(logger, mux)
-	app = recoverPanicMiddleware(corsMiddleware(app))
+	var p = deps.ProfileHandler()
+	mux.HandleFunc("POST /api/profiles", p.CreateProfile)
+	// mux.HandleFunc("GET /api/profiles/{id}", p.getProfile)
+
+	app := requestLoggerMiddleware(logger, corsMiddleware(mux))
+	app = reqIdMiddleware(recoverPanicMiddleware(app))
 
 	logger.Info("server starting", "port", port)
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), app); err != nil {
