@@ -1,6 +1,5 @@
-# HNG14-BE (Stage 0 & 1)
-
-A RESTful API built with Go that classifies names using the Genderize API and manages user profiles.
+# HNG14-BE 
+The slop generator cometh!
 
 ## Tech Stack
 
