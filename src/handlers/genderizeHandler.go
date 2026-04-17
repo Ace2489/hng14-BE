@@ -10,22 +10,6 @@ import (
 	"unicode"
 )
 
-// "Business logic" handlers
-type genderData struct {
-	Name        string  `json:"name"`
-	Gender      string  `json:"gender"`
-	Probability float64 `json:"probability"`
-	SampleSize  int     `json:"sample_size"`
-	IsConfident bool    `json:"is_confident"`
-	ProcessedAt string  `json:"processed_at"`
-}
-
-type genderizeResponse struct {
-	Count       int     `json:"count"`
-	Name        string  `json:"name"`
-	Gender      *string `json:"gender"`
-	Probability float64 `json:"probability"`
-}
 type GenderizeHandler struct {
 	Client *http.Client
 }

@@ -1,3 +1,5 @@
 notes
 tmp/*
 nohup.out
+out
+*.sqlite
