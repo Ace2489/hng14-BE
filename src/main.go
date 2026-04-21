@@ -1,8 +1,8 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
+	"hng-s1/db"
 	"hng-s1/src/handlers"
 	"log"
 	"log/slog"
@@ -27,24 +27,6 @@ func logLevel() slog.Level {
 	}
 }
 
-func bootstrap(db *sql.DB) error {
-	_, err := db.Exec(`
-		CREATE TABLE IF NOT EXISTS profiles (
-			id                  TEXT PRIMARY KEY,
-			name                TEXT NOT NULL,
-			gender              TEXT NOT NULL,
-			gender_probability  REAL NOT NULL,
-			sample_size         INTEGER NOT NULL,
-			age                 INTEGER NOT NULL,
-			age_group           TEXT NOT NULL,
-			country_id          TEXT NOT NULL,
-			country_probability REAL NOT NULL,
-			created_at          TEXT NOT NULL
-		);
-		CREATE UNIQUE INDEX IF NOT EXISTS idx_profiles_name_lower ON profiles (LOWER(name));
-	`)
-	return err
-}
 func main() {
 	mux := http.NewServeMux()
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
@@ -61,11 +43,8 @@ func main() {
 	}
 
 	client := &http.Client{Timeout: time.Second * 5}
-	db, err := sql.Open("sqlite3", "./test.sqlite")
+	db, err := db.BootstrapDB("./test.sqlite", "seed_profiles.json")
 	if err != nil {
-		log.Fatalf("DB failed to open: %s\n", err)
-	}
-	if err := bootstrap(db); err != nil {
 		log.Fatalf("DB bootstrap failed: %s\n", err)
 	}
 
