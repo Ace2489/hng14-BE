@@ -33,16 +33,6 @@ func ageGroup(age int) string {
 	}
 }
 
-func topCountry(countries []country) country {
-	best := countries[0]
-	for _, c := range countries[1:] {
-		if c.Probability > best.Probability {
-			best = c
-		}
-	}
-	return best
-}
-
 func (h *ProfileHandler) CreateProfile(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
 	logger := utils.LoggerFromCtx(ctx)
@@ -76,13 +66,13 @@ func (h *ProfileHandler) CreateProfile(w http.ResponseWriter, r *http.Request) {
 	logger.Debug(fmt.Sprintf("Looking up name ->%s<-", params.Name))
 	var existing Profile
 	err := h.db.QueryRowContext(ctx, `
-		SELECT id, name, gender, gender_probability, sample_size, age, age_group,
-		       country_id, country_probability, created_at
+		SELECT id, name, gender, gender_probability, age, age_group,
+		       country_id, country_name, country_probability, created_at
 		FROM profiles WHERE LOWER(name) = LOWER($1)
 	`, params.Name).Scan(
 		&existing.ID, &existing.Name, &existing.Gender, &existing.GenderProbability,
-		&existing.SampleSize, &existing.Age, &existing.AgeGroup,
-		&existing.CountryID, &existing.CountryProbability, &existing.CreatedAt,
+		&existing.Age, &existing.AgeGroup,
+		&existing.CountryID, &existing.CountryName, &existing.CountryProbability, &existing.CreatedAt,
 	)
 	if err == nil {
 		logger.Info(fmt.Sprintf("Profile already exists for name ->%s<-", params.Name))
@@ -91,7 +81,7 @@ func (h *ProfileHandler) CreateProfile(w http.ResponseWriter, r *http.Request) {
 	}
 	if err != sql.ErrNoRows {
 		logger.Error("DB lookup failed", "error", err)
-		utils.WriteError(w, http.StatusInternalServerError, "internal server error")
+		utils.WriteError(w, http.StatusInternalServerError, "Internal server error")
 		return
 	}
 	logger.Debug(fmt.Sprintf("No existing profile found for name ->%s<-", params.Name))
@@ -159,11 +149,18 @@ func (h *ProfileHandler) CreateProfile(w http.ResponseWriter, r *http.Request) {
 	logger.Info("All external API requests completed")
 
 	logger.Info("Building profile from API responses")
-	best := topCountry(nationality.Country)
+	country := nationality.Country[0]
+	country_name, ok := utils.Alpha2ToName(country.CountryID)
+	logger.Debug(fmt.Sprintf("Country name: %s", country_name))
+	if !ok {
+		logger.Error("Failed to get country name from country code")
+		utils.WriteError(w, http.StatusInternalServerError, "Something went wrong")
+	}
+
 	id, err := uuid.NewV7()
 	if err != nil {
 		logger.Error("Failed to generate UUID", "error", err)
-		utils.WriteError(w, http.StatusInternalServerError, "failed to generate id")
+		utils.WriteError(w, http.StatusInternalServerError, "failed to generate id") //This is more information than the client should be receiving, no?
 		return
 	}
 
@@ -172,24 +169,24 @@ func (h *ProfileHandler) CreateProfile(w http.ResponseWriter, r *http.Request) {
 		Name:               params.Name,
 		Gender:             *gender.Gender,
 		GenderProbability:  gender.Probability,
-		SampleSize:         gender.Count,
 		Age:                *age.Age,
 		AgeGroup:           ageGroup(*age.Age),
-		CountryID:          best.CountryID,
-		CountryProbability: best.Probability,
+		CountryID:          country.CountryID,
+		CountryName:        country_name,
+		CountryProbability: country.Probability,
 		CreatedAt:          time.Now().UTC().Format(time.RFC3339),
 	}
 	logger.Debug(fmt.Sprintf("Profile built ->%+v<-", profile))
 
 	logger.Info("Persisting profile to database")
 	_, err = h.db.ExecContext(ctx, `
-		INSERT INTO profiles (id, name, gender, gender_probability, sample_size, age, age_group,
-		                      country_id, country_probability, created_at)
+		INSERT INTO profiles (id, name, gender, gender_probability, age, age_group,
+		                      country_id, country_name, country_probability, created_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
 	`,
 		profile.ID, profile.Name, profile.Gender, profile.GenderProbability,
-		profile.SampleSize, profile.Age, profile.AgeGroup,
-		profile.CountryID, profile.CountryProbability, profile.CreatedAt,
+		profile.Age, profile.AgeGroup,
+		profile.CountryID, profile.CountryName, profile.CountryProbability, profile.CreatedAt,
 	)
 	if err != nil {
 		logger.Error("DB insert failed", "error", err)
@@ -212,13 +209,13 @@ func (h *ProfileHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 
 	var p Profile
 	err := h.db.QueryRowContext(ctx, `
-		SELECT id, name, gender, gender_probability, sample_size, age, age_group,
-		       country_id, country_probability, created_at
+		SELECT id, name, gender, gender_probability, age, age_group,
+		       country_id, country_name, country_probability, created_at
 		FROM profiles WHERE id = $1
 	`, id).Scan(
 		&p.ID, &p.Name, &p.Gender, &p.GenderProbability,
-		&p.SampleSize, &p.Age, &p.AgeGroup,
-		&p.CountryID, &p.CountryProbability, &p.CreatedAt,
+		&p.Age, &p.AgeGroup,
+		&p.CountryID, &p.CountryName, &p.CountryProbability, &p.CreatedAt,
 	)
 	if err == sql.ErrNoRows {
 		logger.Error(fmt.Sprintf("No profile found for id ->%s<-", id))
@@ -321,6 +318,5 @@ func (h *ProfileHandler) DeleteProfile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logger.Info(fmt.Sprintf("Profile deleted successfully ->%s<-", id))
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.WriteHeader(http.StatusNoContent)
 }

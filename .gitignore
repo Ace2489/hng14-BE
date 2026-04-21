@@ -3,3 +3,4 @@ tmp/*
 nohup.out
 out
 *.sqlite
+play.go

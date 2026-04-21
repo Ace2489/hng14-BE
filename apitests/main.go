@@ -56,10 +56,10 @@ type Profile struct {
 	Name               string  `json:"name"`
 	Gender             string  `json:"gender"`
 	GenderProbability  float64 `json:"gender_probability"`
-	SampleSize         int     `json:"sample_size"`
 	Age                int     `json:"age"`
 	AgeGroup           string  `json:"age_group"`
 	CountryID          string  `json:"country_id"`
+	CountryName        string  `json:"country_name"`
 	CountryProbability float64 `json:"country_probability"`
 	CreatedAt          string  `json:"created_at"`
 }
@@ -311,9 +311,6 @@ func testCreateProfile() {
 	if p.GenderProbability < 0 || p.GenderProbability > 1 {
 		fail("CREATE_PROFILE", "gender_probability range", "0.0–1.0", fmt.Sprintf("%.4f", p.GenderProbability), body)
 	}
-	if p.SampleSize <= 0 {
-		fail("CREATE_PROFILE", "sample_size", "> 0", fmt.Sprint(p.SampleSize), body)
-	}
 	if p.Age <= 0 {
 		fail("CREATE_PROFILE", "age", "> 0", fmt.Sprint(p.Age), body)
 	}
@@ -322,6 +319,7 @@ func testCreateProfile() {
 			fmt.Sprintf("correct group for age %d", p.Age), p.AgeGroup, body)
 	}
 	assertNonEmpty("CREATE_PROFILE", "country_id", p.CountryID, body)
+	assertNonEmpty("CREATE_PROFILE", "country_name", p.CountryName, body)
 	if p.CountryProbability < 0 || p.CountryProbability > 1 {
 		fail("CREATE_PROFILE", "country_probability range", "0.0–1.0", fmt.Sprintf("%.4f", p.CountryProbability), body)
 	}

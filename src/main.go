@@ -2,7 +2,7 @@ package main
 
 import (
 	"fmt"
-	"hng-s1/db"
+	"hng-s1/src/db"
 	"hng-s1/src/handlers"
 	"log"
 	"log/slog"
