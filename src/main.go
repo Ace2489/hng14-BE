@@ -46,6 +46,9 @@ func main() {
 	client := &http.Client{Timeout: time.Second * 5}
 	log.Println("Initialising DB")
 	db, err := db.InitialiseDB("./test.sqlite", "seed_profiles.json")
+	if err != nil {
+		log.Fatalf("failed to initialise DB: %v", err)
+	}
 	log.Println("DB initialised successfully :)")
 
 	deps := handlers.Dependencies{

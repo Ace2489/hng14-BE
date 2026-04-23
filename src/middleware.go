@@ -6,6 +6,7 @@ import (
 	"hng-s1/src/utils"
 	"log"
 	"net/http"
+	"runtime/debug"
 	"time"
 )
 
@@ -40,6 +41,8 @@ func recoverPanicMiddleware(next http.Handler) http.Handler {
 			if rec := recover(); rec != nil {
 				reqId := IdFromCtx(r.Context())
 				log.Printf("Server panicked with error: %s. request_id: %s\n", rec, reqId)
+				stack := debug.Stack()
+				log.Printf("panic: %v\n%s", rec, stack)
 				utils.WriteError(w, http.StatusInternalServerError, "internal server error")
 			}
 		}()

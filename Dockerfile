@@ -24,6 +24,6 @@ WORKDIR /app
 RUN apk --no-cache add ca-certificates
 
 # Copy binary from builder
-COPY --from=builder /app/server .
+COPY --from=builder /app/server /app/seed_profiles.json ./
 
 CMD ["./server"]
