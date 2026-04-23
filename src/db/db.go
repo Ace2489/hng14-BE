@@ -25,11 +25,20 @@ func Migrate(db *sql.DB) error {
 			country_probability REAL NOT NULL,
 			created_at          TEXT NOT NULL DEFAULT (datetime('now'))
 		);
-		CREATE UNIQUE INDEX IF NOT EXISTS idx_profiles_name ON profiles (LOWER(name));
+		CREATE INDEX IF NOT EXISTS idx_profiles_age ON profiles (age);
+		CREATE INDEX IF NOT EXISTS idx_profiles_gender_probability ON profiles (gender_probability);
+		CREATE INDEX IF NOT EXISTS idx_profiles_country_probability ON profiles (country_probability);
+		CREATE INDEX IF NOT EXISTS idx_profiles_created_at ON profiles (created_at);
 	`)
 	return err
 }
 
+// NOTE (IMPROVEMENT): Inserting 2206 rows takes almost twenty seconds with this
+// That is outrageously slow considering what actually needs to happen at the fundamental level
+// Investigate this and find out why
+//
+// My guess is that we're paying the cost of writing to disk for each entry,
+// and that we could probably get 50-1000x faster by batching the data
 func Seed(db *sql.DB, seedPath string) error {
 	f, err := os.Open(seedPath)
 	if err != nil {
@@ -75,26 +84,27 @@ func Seed(db *sql.DB, seedPath string) error {
 	return nil
 }
 
-func BootstrapDB(connString string, seedPath string) (*sql.DB, error) {
-	log.Println("Opening connection to db")
+func InitialiseDB(connString string, seedPath string) (*sql.DB, error) {
+	log.Println("Opening connection to DB")
 	db, err := sql.Open(dbProvider, connString)
+
 	if err != nil {
-		log.Println("Failed to open db:", err)
+		log.Println("Failed to open DB:", err)
 		return nil, err
 	}
 
 	log.Println("Running migrations")
 	err = Migrate(db)
 	if err != nil {
-		log.Println("Failed to migrate db:", err)
+		log.Println("Failed to migrate DB:", err)
 		return nil, err
 	}
 
-	log.Println("Initialising db with seed data")
+	log.Println("Inserting seed data")
 	err = Seed(db, seedPath)
 
 	if err != nil {
-		log.Println("Initialising db with seed data failed:", err)
+		log.Println("Initialising DB with seed data failed:", err)
 		return nil, err
 	}
 

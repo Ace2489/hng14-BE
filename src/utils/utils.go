@@ -3,9 +3,11 @@ package utils
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
+	"unicode"
 )
 
 type Payload struct {
@@ -15,6 +17,20 @@ type Payload struct {
 }
 
 type LoggerKey struct{}
+
+// Thin wrapper to enable formatting without requiring fmt.Sprintf all the time
+type Logger struct {
+	*slog.Logger
+}
+
+func (logger *Logger) DebugFmt(str string, args ...any) {
+	logger.Debug(fmt.Sprintf(str, args...))
+}
+
+func (logger *Logger) InfoFmt(str string, args ...any) {
+	logger.Info(fmt.Sprintf(str, args...))
+
+}
 
 func WriteJSON(w http.ResponseWriter, status int, payload interface{}) {
 	w.Header().Set("Content-Type", "application/json")
@@ -43,12 +59,32 @@ func WriteList(w http.ResponseWriter, status int, count int, data interface{}) {
 	WriteJSON(w, status, listPayload{Status: "success", Count: count, Data: data})
 }
 
-func LoggerFromCtx(ctx context.Context) *slog.Logger {
-	if logger, ok := ctx.Value(LoggerKey{}).(*slog.Logger); ok {
+func WritePaginatedResponse(w http.ResponseWriter, status int, page int, limit int, total int, data any) {
+	type PaginatedResponse struct {
+		Status string      `json:"status"`
+		Page   int         `json:"page"`
+		Limit  int         `json:"limit"`
+		Total  int         `json:"total"`
+		Data   interface{} `json:"data"`
+	}
+	WriteJSON(w, status, PaginatedResponse{Status: "success", Page: page, Limit: limit, Total: total, Data: data})
+}
+
+func LoggerFromCtx(ctx context.Context) Logger {
+	if logger, ok := ctx.Value(LoggerKey{}).(Logger); ok {
 		return logger
 	}
-	log.Println("No logger found. Falling back the default logger")
-	return slog.Default()
+	log.Println("No logger found. Falling back to the default logger")
+	return Logger{Logger: slog.Default()}
+}
+
+func EnsureAlphabets(input string) bool {
+	for _, c := range input {
+		if !unicode.IsLetter(c) {
+			return false
+		}
+	}
+	return true
 }
 
 // Country code from Names

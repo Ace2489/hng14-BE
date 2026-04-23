@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"hng-s1/src/db"
 	"hng-s1/src/handlers"
+	"hng-s1/src/utils"
 	"log"
 	"log/slog"
 	"net/http"
@@ -29,9 +30,9 @@ func logLevel() slog.Level {
 
 func main() {
 	mux := http.NewServeMux()
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+	logger := &utils.Logger{Logger: slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
 		Level: logLevel(),
-	}))
+	}))}
 
 	portStr := os.Getenv("API_PORT")
 	if portStr == "" {
@@ -43,10 +44,9 @@ func main() {
 	}
 
 	client := &http.Client{Timeout: time.Second * 5}
-	db, err := db.BootstrapDB("./test.sqlite", "seed_profiles.json")
-	if err != nil {
-		log.Fatalf("DB bootstrap failed: %s\n", err)
-	}
+	log.Println("Initialising DB")
+	db, err := db.InitialiseDB("./test.sqlite", "seed_profiles.json")
+	log.Println("DB initialised successfully :)")
 
 	deps := handlers.Dependencies{
 		DB:     db,
@@ -60,6 +60,7 @@ func main() {
 	var p = deps.ProfileHandler()
 	mux.HandleFunc("POST /api/profiles", p.CreateProfile)
 	mux.HandleFunc("GET /api/profiles/{id}", p.GetProfile)
+	mux.HandleFunc("GET /api/profiles/search", p.SearchProfiles)
 	mux.HandleFunc("GET /api/profiles", p.GetProfiles)
 	mux.HandleFunc("DELETE /api/profiles/{id}", p.DeleteProfile)
 

@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"hng-s1/src/utils"
 	"log"
-	"log/slog"
 	"net/http"
 	"time"
 )
 
+// Thin wrapper to catch the response code after being written
 type responseWriter struct {
 	http.ResponseWriter
 	status int
@@ -67,11 +67,11 @@ func corsMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-func requestLoggerMiddleware(logger *slog.Logger, next http.Handler) http.Handler {
+func requestLoggerMiddleware(logger *utils.Logger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reqId := IdFromCtx(r.Context())
 
-		log := logger.With("request_id", reqId, "method", r.Method, "path", r.URL.Path)
+		log := utils.Logger{Logger: logger.With("request_id", reqId, "method", r.Method, "path", r.URL.Path)}
 		log.Info("Request received")
 
 		rw := &responseWriter{ResponseWriter: w, status: http.StatusOK}

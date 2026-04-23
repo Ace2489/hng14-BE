@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"hng-s1/src/utils"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -233,66 +235,30 @@ func (h *ProfileHandler) GetProfile(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *ProfileHandler) GetProfiles(w http.ResponseWriter, r *http.Request) {
-	ctx := r.Context()
-	logger := utils.LoggerFromCtx(ctx)
+	h.fetchProfiles(r.Context(), r.URL.Query(), w)
+}
 
-	q := r.URL.Query()
-	gender := strings.ToLower(q.Get("gender"))
-	countryID := strings.ToUpper(q.Get("country_id"))
-	ageGrp := strings.ToLower(q.Get("age_group"))
+func (h *ProfileHandler) SearchProfiles(w http.ResponseWriter, r *http.Request) {
+	logger := utils.LoggerFromCtx(r.Context())
+	raw := r.URL.Query().Get("q")
 
-	logger.Info("Parsing query parameters")
-	logger.Debug(fmt.Sprintf("Filters -> gender=%s country_id=%s age_group=%s", gender, countryID, ageGrp))
+	logger.Info("Natural language search", "q", raw)
 
-	filters := []string{}
-	args := []any{}
-	i := 1
-
-	if gender != "" {
-		filters = append(filters, fmt.Sprintf("LOWER(gender) = $%d", i))
-		args = append(args, gender)
-		i++
-	}
-	if countryID != "" {
-		filters = append(filters, fmt.Sprintf("UPPER(country_id) = $%d", i))
-		args = append(args, countryID)
-		i++
-	}
-	if ageGrp != "" {
-		filters = append(filters, fmt.Sprintf("LOWER(age_group) = $%d", i))
-		args = append(args, ageGrp)
-		i++
-	}
-
-	query := "SELECT id, name, gender, age, age_group, country_id FROM profiles"
-	if len(filters) > 0 {
-		query += " WHERE " + strings.Join(filters, " AND ")
-	}
-	logger.Debug(fmt.Sprintf("Constructed query ->%s<-", query))
-
-	logger.Info("Querying database for profiles")
-	rows, err := h.db.QueryContext(ctx, query, args...)
-	if err != nil {
-		logger.Error("DB query failed", "error", err)
-		utils.WriteError(w, http.StatusInternalServerError, "internal server error")
+	filters, ok := parseLanguageQuery(raw)
+	if !ok {
+		logger.Error("Unable to interpret query", "q", raw)
+		utils.WriteError(w, http.StatusBadRequest, "Unable to interpret query")
 		return
 	}
-	defer rows.Close()
 
-	profiles := []ProfileSummary{}
-	for rows.Next() {
-		var p ProfileSummary
-		if err := rows.Scan(&p.ID, &p.Name, &p.Gender, &p.Age, &p.AgeGroup, &p.CountryID); err != nil {
-			logger.Error("Failed to scan profile row", "error", err)
-			utils.WriteError(w, http.StatusInternalServerError, "internal server error")
-			return
+	logger.DebugFmt("Parsed NL filters -> %s", filters.Encode())
+
+	for _, k := range []string{"page", "limit", "sort_by", "order"} {
+		if v := r.URL.Query().Get(k); v != "" {
+			filters.Set(k, v)
 		}
-		profiles = append(profiles, p)
 	}
-	logger.Debug(fmt.Sprintf("Fetched %d profiles", len(profiles)))
-
-	logger.Info("Writing successful JSON response")
-	utils.WriteList(w, http.StatusOK, len(profiles), profiles)
+	h.fetchProfiles(r.Context(), filters, w)
 }
 
 func (h *ProfileHandler) DeleteProfile(w http.ResponseWriter, r *http.Request) {
@@ -319,4 +285,172 @@ func (h *ProfileHandler) DeleteProfile(w http.ResponseWriter, r *http.Request) {
 
 	logger.Info(fmt.Sprintf("Profile deleted successfully ->%s<-", id))
 	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *ProfileHandler) fetchProfiles(ctx context.Context, q url.Values, w http.ResponseWriter) {
+	logger := utils.LoggerFromCtx(ctx)
+
+	page := queryInt(q, "page", 1)
+	limit := min(queryInt(q, "limit", 10), 50)
+
+	sortCol := map[string]string{
+		"age": "age", "created_at": "created_at", "gender_probability": "gender_probability",
+	}[q.Get("sort_by")]
+	if sortCol == "" {
+		sortCol = "created_at"
+	}
+	order := "ASC"
+	if strings.ToLower(q.Get("order")) == "desc" {
+		order = "DESC"
+	}
+
+	var where []string
+	var args []any
+	invalid := false
+
+	strFilter := func(col, val string) {
+		if val != "" {
+			where = append(where, col+" = ?")
+			args = append(args, val)
+		}
+	}
+	rangeFilter := func(col, op, val string, parse func(string) (any, error)) {
+		if val == "" {
+			return
+		}
+		v, err := parse(val)
+		if err != nil {
+			invalid = true
+			return
+		}
+		where = append(where, col+" "+op+" ?")
+		args = append(args, v)
+	}
+
+	strFilter("gender", strings.ToLower(q.Get("gender")))
+	strFilter("age_group", strings.ToLower(q.Get("age_group")))
+	strFilter("country_id", strings.ToUpper(q.Get("country_id")))
+	rangeFilter("age", ">=", q.Get("min_age"), func(s string) (any, error) { n, err := strconv.Atoi(s); return n, err })
+	rangeFilter("age", "<=", q.Get("max_age"), func(s string) (any, error) { n, err := strconv.Atoi(s); return n, err })
+	rangeFilter("gender_probability", ">=", q.Get("min_gender_probability"), func(s string) (any, error) { return strconv.ParseFloat(s, 64) })
+	rangeFilter("country_probability", ">=", q.Get("min_country_probability"), func(s string) (any, error) { return strconv.ParseFloat(s, 64) })
+
+	if invalid {
+		logger.Error("Invalid query parameters", "params", q.Encode())
+		utils.WriteError(w, http.StatusBadRequest, "Invalid query parameters")
+		return
+	}
+
+	clause := "FROM profiles"
+	if len(where) > 0 {
+		clause += " WHERE " + strings.Join(where, " AND ")
+	}
+
+	logger.Info("Querying profiles", "page", page, "limit", limit, "sort_by", sortCol, "order", order)
+	logger.DebugFmt("Filters -> %s | clause -> %s", q.Encode(), clause)
+
+	logger.DebugFmt("	")
+	rows, err := h.db.QueryContext(ctx, fmt.Sprintf(
+		"SELECT id, name, gender, gender_probability, age, age_group, country_id, country_name, country_probability, created_at, COUNT(*) OVER() %s ORDER BY %s %s LIMIT ? OFFSET ?",
+		clause, sortCol, order,
+	), append(args, limit, (page-1)*limit)...)
+	if err != nil {
+		logger.Error("DB query failed", "error", err)
+		utils.WriteError(w, http.StatusInternalServerError, "internal server error")
+		return
+	}
+	defer rows.Close()
+
+	var total int
+	profiles := []Profile{}
+	for rows.Next() {
+		var p Profile
+		if err := rows.Scan(&p.ID, &p.Name, &p.Gender, &p.GenderProbability, &p.Age, &p.AgeGroup, &p.CountryID, &p.CountryName, &p.CountryProbability, &p.CreatedAt, &total); err != nil {
+			logger.Error("Row scan failed", "error", err)
+			utils.WriteError(w, http.StatusInternalServerError, "internal server error")
+			return
+		}
+		profiles = append(profiles, p)
+	}
+
+	logger.Info("Profiles fetched", "count", len(profiles), "total", total)
+	utils.WritePaginatedResponse(w, http.StatusOK, page, limit, total, profiles)
+}
+
+func queryInt(q url.Values, key string, def int) int {
+	v, err := strconv.Atoi(q.Get(key))
+	if err != nil || v < 1 {
+		return def
+	}
+	return v
+}
+
+// Temp: Get the version from Flaticols later
+var countryMap = map[string]string{
+	"nigeria": "NG", "tanzania": "TZ", "kenya": "KE", "angola": "AO",
+	"benin": "BJ", "ghana": "GH", "ethiopia": "ET", "uganda": "UG",
+	"senegal": "SN", "cameroon": "CM", "ivory coast": "CI", "mali": "ML",
+	"mozambique": "MZ", "zambia": "ZM", "zimbabwe": "ZW", "rwanda": "RW",
+	"somalia": "SO", "sudan": "SD", "tunisia": "TN", "algeria": "DZ",
+	"morocco": "MA", "egypt": "EG", "south africa": "ZA", "niger": "NE",
+	"chad": "TD", "burkina faso": "BF", "malawi": "MW", "togo": "TG",
+}
+
+func parseLanguageQuery(q string) (url.Values, bool) {
+	q = strings.ToLower(strings.TrimSpace(q))
+	if q == "" {
+		return nil, false
+	}
+
+	filters := url.Values{}
+	words := strings.Fields(q)
+
+	if strings.Contains(q, "female") {
+		filters.Set("gender", "female")
+	} else if strings.Contains(q, "male") {
+		filters.Set("gender", "male")
+	}
+
+	for _, ag := range []string{"child", "teenager", "adult", "senior"} {
+		if strings.Contains(q, ag) {
+			filters.Set("age_group", ag)
+			break
+		}
+	}
+
+	if strings.Contains(q, "young") {
+		filters.Set("min_age", "16")
+		filters.Set("max_age", "24")
+	}
+	for i, w := range words {
+		if i+1 >= len(words) {
+			break
+		}
+		n, err := strconv.Atoi(words[i+1])
+		if err != nil {
+			continue
+		}
+		switch w {
+		case "above", "over":
+			filters.Set("min_age", strconv.Itoa(n))
+		case "below", "under":
+			filters.Set("max_age", strconv.Itoa(n))
+		}
+	}
+
+	if idx := strings.Index(q, "from "); idx != -1 {
+		parts := strings.Fields(q[idx+5:])
+		for l := len(parts); l > 0; l-- {
+			if code, ok := countryMap[strings.Join(parts[:l], " ")]; ok {
+				filters.Set("country_id", code)
+				break
+			}
+		}
+	}
+
+	if len(filters) == 0 {
+		return nil, false
+	}
+
+	return filters, true
 }
