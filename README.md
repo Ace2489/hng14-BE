@@ -38,7 +38,71 @@ Example:
 LOG_LEVEL=DEBUG PORT=3000 go run ./src
 ```
 
+# Natural Language Query Parser
+
+## How It Works
+
+`GET /api/profiles/search?q=` accepts a plain English query and converts it into structured filters before hitting the same query path as `GET /api/profiles`.
+
+## Supported Keywords
+
+**Gender**
+| Query contains | Maps to |
+|---|---|
+| `female` | `gender=female` |
+| `male` | `gender=male` |
+
+`female` is checked first, so "male and female" resolves to `female`. Explicit phrasing like "males and females" won't yield both, so you have to exclude the filter if you want all of it.
+
+**Age Groups**
+| Keyword | Maps to |
+|---|---|
+| `child` | `age_group=child` |
+| `teenager` | `age_group=teenager` |
+| `adult` | `age_group=adult` |
+| `senior` | `age_group=senior` |
+| `young` | `min_age=16` + `max_age=24` |
+
+**Age Modifiers**
+
+Looks for a keyword immediately followed by a number:
+
+| Pattern | Maps to |
+|---|---|
+| `above N` / `over N` | `min_age=N` |
+| `below N` / `under N` | `max_age=N` |
+
+**Country**
+
+Matches the phrase after `from` to ISO codes. Multi-word countries (e.g. `ivory coast`, `south africa`) are matched by trying progressively shorter suffixes.
+
 ---
+
+## Examples
+
+```
+young males from nigeria        →  gender=male, min_age=16, max_age=24, country_id=NG
+females above 30                →  gender=female, min_age=30
+adult males from kenya          →  gender=male, age_group=adult, country_id=KE
+teenagers below 19              →  age_group=teenager, max_age=19
+people from ivory coast         →  country_id=CI
+```
+
+Queries that produce zero filters return `400 Unable to interpret query`.
+
+---
+
+## Limitations
+
+**Gender is not additive.** "males and females" does not return both — it resolves to `female` because that keyword is matched first. Queries intending both genders should omit gender entirely.
+
+**`young` and `age_group` can conflict.** "young adults" sets both `min_age=16&max_age=24` and `age_group=adult`. The DB will apply both constraints, which may return fewer results than expected.
+
+**Age modifiers require the number to be the next token.** "above thirty" won't parse — only digits work. "ages above 30" won't work either — the word before the number must be the modifier keyword directly.
+
+**Country matching is a fixed list.** Countries not in `countryMap` are silently ignored. The query still runs if other filters matched; it only returns `Unable to interpret query` if *nothing* parsed.
+
+**No negation.** "not from nigeria", "excluding seniors", "non-binary" — none of these are handled.
 
 ## Running Tests
 
