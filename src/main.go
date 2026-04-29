@@ -59,24 +59,11 @@ func main() {
 	v1 := http.NewServeMux()
 	auth := AuthMiddleware{JwtSecret: cfg.JwtSecret}
 	adminGuard := requireRole(data.RoleAdmin)
+	rateLimiter := RateLimiter{Redis: cfg.Redis}
 
 	var g = deps.GenderizeHandler()
 	var p = deps.ProfileHandler()
 	var a = deps.AuthHandler()
-
-	// v1.HandleFunc("/", handlers.HandleNotFound)
-	// v1.HandleFunc("GET /classify", g.HandleGender)
-
-	// v1.HandleFunc("POST /profiles", p.CreateProfile)
-	// v1.HandleFunc("GET /profiles/{id}", auth.Guard(adminGuard(p.GetProfile)))
-	// v1.HandleFunc("GET /profiles/search", p.SearchProfiles)
-	// v1.HandleFunc("GET /profiles", p.GetProfiles)
-	// v1.HandleFunc("DELETE /profiles/{id}", auth.Guard(adminGuard(p.DeleteProfile)))
-
-	// v1.HandleFunc("GET /auth/github", a.GitHubLogin)
-	// v1.HandleFunc("GET /auth/github/callback", a.GitHubCallback)
-	// v1.HandleFunc("POST /auth/refresh", a.HandleRefresh)
-	// v1.HandleFunc("GET /auth/me", auth.Guard(a.HandleMe))
 
 	// public — no auth
 	v1.HandleFunc("GET /auth/github", a.GitHubLogin)
@@ -87,17 +74,18 @@ func main() {
 	protected.HandleFunc("GET /classify", g.HandleGender)
 
 	protected.HandleFunc("POST /profiles", p.CreateProfile)
-	protected.HandleFunc("GET /profiles/{id}", p.GetProfile)
+	protected.HandleFunc("GET /profiles/{id}", adminGuard(p.GetProfile))
 	protected.HandleFunc("GET /profiles/search", p.SearchProfiles)
 	protected.HandleFunc("GET /profiles", p.GetProfiles)
-
 	protected.HandleFunc("DELETE /profiles/{id}", adminGuard(p.DeleteProfile))
+	protected.Handle("GET /profiles/export", adminGuard(p.ExportCSV))
+
 	protected.HandleFunc("GET /auth/me", a.HandleMe)
 
 	v1.Handle("/", auth.Guard(protected))
 	mux.Handle("/api/v1/", http.StripPrefix("/api/v1", v1))
 
-	app := requestLoggerMiddleware(logger, corsMiddleware(mux))
+	app := requestLoggerMiddleware(logger, rateLimiter.Middleware(corsMiddleware(mux)))
 	app = reqIdMiddleware(recoverPanicMiddleware(app))
 
 	serverUrl := fmt.Sprintf("%s:%d", cfg.Addr, cfg.Port)

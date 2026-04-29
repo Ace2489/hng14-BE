@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"database/sql"
+	"encoding/csv"
 	"encoding/json"
 	"fmt"
 	"hng-s1/src/utils"
@@ -287,6 +288,39 @@ func (h *ProfileHandler) DeleteProfile(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (h *ProfileHandler) ExportCSV(w http.ResponseWriter, r *http.Request) {
+	logger := utils.LoggerFromCtx(r.Context())
+	id := r.URL.Query().Get("id")
+	profiles, err := h.GetProfilesForExport(id, logger)
+
+	if err != nil {
+		logger.Error("Error exporting profiles", "error:", err)
+		utils.WriteError(w, http.StatusInternalServerError, "export failed")
+		return
+	}
+	if len(profiles) == 0 {
+		logger.Error("No profiles matched the given id", "id:", id)
+		utils.WriteError(w, http.StatusInternalServerError, "No profiles matched the given id")
+		return
+	}
+	w.Header().Set("Content-Type", "text/csv")
+	w.Header().Set("Content-Disposition", "attachment; filename=profiles.csv")
+
+	cw := csv.NewWriter(w)
+	cw.Write([]string{"id", "name", "gender", "gender_probability", "age", "age_group", "country_id", "country_name", "country_probability", "created_at"})
+	for _, p := range profiles {
+		cw.Write([]string{
+			p.ID, p.Name, p.Gender,
+			strconv.FormatFloat(p.GenderProbability, 'f', 4, 64),
+			strconv.Itoa(p.Age), p.AgeGroup,
+			p.CountryID, p.CountryName,
+			strconv.FormatFloat(p.CountryProbability, 'f', 4, 64),
+			p.CreatedAt,
+		})
+	}
+	logger.Info("Sending profiles.csv to the client")
+	cw.Flush()
+}
 func (h *ProfileHandler) fetchProfiles(ctx context.Context, q url.Values, w http.ResponseWriter) {
 	logger := utils.LoggerFromCtx(ctx)
 
@@ -377,6 +411,30 @@ func (h *ProfileHandler) fetchProfiles(ctx context.Context, q url.Values, w http
 	utils.WritePaginatedResponse(w, http.StatusOK, page, limit, total, profiles)
 }
 
+func (h *ProfileHandler) GetProfilesForExport(id string, logger utils.Logger) ([]Profile, error) {
+	query := "SELECT id, name, gender, gender_probability, age, age_group, country_id, country_name, country_probability, created_at FROM profiles"
+	args := []any{}
+	if id != "" {
+		query += " WHERE id = ?"
+		args = append(args, id)
+	}
+	logger.InfoFmt("Profile export query %s", query)
+	rows, err := h.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var profiles []Profile
+	for rows.Next() {
+		var p Profile
+		if err := rows.Scan(&p.ID, &p.Name, &p.Gender, &p.GenderProbability, &p.Age, &p.AgeGroup, &p.CountryID, &p.CountryName, &p.CountryProbability, &p.CreatedAt); err != nil {
+			return nil, err
+		}
+		profiles = append(profiles, p)
+	}
+	logger.InfoFmt("Returning %d profiles for export", len(profiles))
+	return profiles, rows.Err()
+}
 func queryInt(q url.Values, key string, def int) int {
 	v, err := strconv.Atoi(q.Get(key))
 	if err != nil || v < 1 {
