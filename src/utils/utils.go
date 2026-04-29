@@ -32,9 +32,44 @@ func (logger *Logger) InfoFmt(str string, args ...any) {
 
 }
 
+func LoggerFromCtx(ctx context.Context) Logger {
+	if logger, ok := ctx.Value(LoggerKey{}).(Logger); ok {
+		return logger
+	}
+	log.Println("No logger found. Falling back to the default logger")
+	return Logger{Logger: slog.Default()}
+}
+
+func EnsureAlphabets(input string) bool {
+	for _, c := range input {
+		if !unicode.IsLetter(c) {
+			return false
+		}
+	}
+	return true
+}
+
+func SetAuthCookies(w http.ResponseWriter, accessToken, refreshToken string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     "access_token",
+		Value:    accessToken,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Path:     "/",
+		MaxAge:   int(AccessExpiry.Seconds()),
+	})
+	http.SetCookie(w, &http.Cookie{
+		Name:     "refresh_token",
+		Value:    refreshToken,
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		Path:     "/auth/refresh",
+		MaxAge:   int(RefreshExpiry.Seconds()),
+	})
+}
+
 func WriteJSON(w http.ResponseWriter, status int, payload interface{}) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("Access-Control-Allow-Origin", "*") //REDUNDANT: This is now handled by the middleware
 	w.WriteHeader(status)
 	json.NewEncoder(w).Encode(payload)
 }
@@ -68,23 +103,6 @@ func WritePaginatedResponse(w http.ResponseWriter, status int, page int, limit i
 		Data   interface{} `json:"data"`
 	}
 	WriteJSON(w, status, PaginatedResponse{Status: "success", Page: page, Limit: limit, Total: total, Data: data})
-}
-
-func LoggerFromCtx(ctx context.Context) Logger {
-	if logger, ok := ctx.Value(LoggerKey{}).(Logger); ok {
-		return logger
-	}
-	log.Println("No logger found. Falling back to the default logger")
-	return Logger{Logger: slog.Default()}
-}
-
-func EnsureAlphabets(input string) bool {
-	for _, c := range input {
-		if !unicode.IsLetter(c) {
-			return false
-		}
-	}
-	return true
 }
 
 // Country code from Names

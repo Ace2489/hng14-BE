@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"database/sql"
+	"hng-s1/src/data"
 	"hng-s1/src/utils"
 	"net/http"
 
@@ -9,10 +10,11 @@ import (
 )
 
 type Dependencies struct {
-	Client *http.Client
-	DB     *sql.DB
-	Redis  *redis.Client
-	Gh     *utils.GithubOauth
+	Client    *http.Client
+	DB        *sql.DB
+	Redis     *redis.Client
+	Gh        *utils.GithubOauth
+	JwtSecret string
 }
 
 func (d *Dependencies) ProfileHandler() ProfileHandler {
@@ -24,5 +26,5 @@ func (d *Dependencies) GenderizeHandler() GenderizeHandler {
 }
 
 func (d *Dependencies) AuthHandler() AuthHandler {
-	return AuthHandler{redis: d.Redis, gh: d.Gh, client: d.Client}
+	return AuthHandler{redis: d.Redis, db: d.DB, gh: d.Gh, jwtSecret: d.JwtSecret, client: d.Client, userRepo: &data.UserRepo{DB: d.DB}}
 }

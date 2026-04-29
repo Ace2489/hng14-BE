@@ -10,10 +10,11 @@ import (
 )
 
 type Config struct {
-	Addr  string
-	Port  int
-	Redis *redis.Client
-	Gh    *GithubOauth
+	Addr      string
+	Port      int
+	Redis     *redis.Client
+	Gh        *GithubOauth
+	JwtSecret string
 }
 
 type GithubOauth struct {
@@ -56,6 +57,14 @@ func (c *Config) Load() error {
 
 	c.Redis = redis.NewClient(opt)
 
+	//JWT
+	jwtSecret, ok := os.LookupEnv("JWT_SECRET")
+	if !ok {
+		return fmt.Errorf("JWT_SECRET is not set")
+	}
+	c.JwtSecret = jwtSecret
+
+	//Github Oauth
 	ghClient, ok := os.LookupEnv("GITHUB_CLIENT_ID")
 	if !ok || ghClient == "" {
 		return fmt.Errorf("GITHUB_CLIENT_ID not set")

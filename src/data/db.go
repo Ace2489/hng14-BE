@@ -38,7 +38,6 @@ func Migrate(db *sql.DB) error {
     	role       TEXT NOT NULL DEFAULT 'analyst',
     	created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
 	`
-	log.Printf("stmt: %s\n", stmt)
 	_, err := db.Exec(stmt)
 	return err
 }

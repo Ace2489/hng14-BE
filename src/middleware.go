@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"hng-s1/src/data"
 	"hng-s1/src/utils"
 	"log"
 	"net/http"
@@ -55,7 +56,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		logger := utils.LoggerFromCtx(r.Context())
 
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		// w.Header().Set("Access-Control-Allow-Origin", "SameSite")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
@@ -84,6 +85,38 @@ func requestLoggerMiddleware(logger *utils.Logger, next http.Handler) http.Handl
 
 		log.Info("Response sent", "status", rw.status)
 	})
+}
+
+type AuthMiddleware struct{ JwtSecret string }
+
+func (a *AuthMiddleware) Guard(next http.Handler) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		cookie, err := r.Cookie("access_token")
+		if err != nil {
+			utils.WriteError(w, http.StatusUnauthorized, "missing token")
+			return
+		}
+		claims, err := utils.ParseAccessToken(cookie.Value, []byte(a.JwtSecret))
+		if err != nil {
+			utils.WriteError(w, http.StatusUnauthorized, "invalid token")
+			return
+		}
+		ctx := context.WithValue(r.Context(), utils.ClaimsKey{}, claims)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	}
+}
+
+func requireRole(role data.Role) func(http.HandlerFunc) http.HandlerFunc {
+	return func(next http.HandlerFunc) http.HandlerFunc {
+		return func(w http.ResponseWriter, r *http.Request) {
+			claims, ok := utils.ClaimsFromCtx(r.Context())
+			if !ok || claims.Role != role {
+				utils.WriteError(w, http.StatusForbidden, "insufficient permissions")
+				return
+			}
+			next.ServeHTTP(w, r)
+		}
+	}
 }
 
 func IdFromCtx(ctx context.Context) string {
